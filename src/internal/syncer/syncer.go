@@ -212,6 +212,12 @@ func (s *Syncer) Handle(ctx context.Context, raw string) (string, error) {
 		}
 		state, err := s.save(ctx, *call.Connection)
 		return encode(state, err)
+	case "draft":
+		if call.Connection == nil {
+			return "", errors.New("缺少连接设置")
+		}
+		state, err := s.draft(ctx, *call.Connection)
+		return encode(state, err)
 	case "schedule":
 		if call.Schedule == nil {
 			return "", errors.New("缺少自动上传设置")
@@ -321,6 +327,37 @@ func (s *Syncer) save(ctx context.Context, call saveRequest) (State, error) {
 		if utf8.RuneCountInString(passphrase) < minPassphraseRunes {
 			return State{}, fmt.Errorf("同步密码至少需要 %d 个字符", minPassphraseRunes)
 		}
+		next.Passphrase = passphrase
+	}
+	if err := s.store(ctx, next); err != nil {
+		return State{}, err
+	}
+	return s.State(ctx)
+}
+
+// draft persists what the page has typed so far without validating it. The
+// page autosaves every field, so a half-filled form is the normal case: the
+// connection only has to pass Validate when it is actually used (test,
+// upload, restore). Empty credentials keep the stored ones, and a passphrase
+// is only written once it reaches the minimum, so a fragment typed on the way
+// to a real passphrase never replaces a working one.
+func (s *Syncer) draft(ctx context.Context, call saveRequest) (State, error) {
+	current, err := s.load(ctx)
+	if err != nil {
+		return State{}, err
+	}
+	next := current
+	next.Endpoint = strings.TrimSpace(call.Endpoint)
+	next.Region = strings.TrimSpace(call.Region)
+	next.Bucket = strings.TrimSpace(call.Bucket)
+	next.Prefix = strings.Trim(strings.TrimSpace(call.Prefix), "/")
+	if accessKey := strings.TrimSpace(call.AccessKey); accessKey != "" {
+		next.AccessKey = accessKey
+	}
+	if secretKey := strings.TrimSpace(call.SecretKey); secretKey != "" {
+		next.SecretKey = secretKey
+	}
+	if passphrase := strings.TrimSpace(call.Passphrase); utf8.RuneCountInString(passphrase) >= minPassphraseRunes {
 		next.Passphrase = passphrase
 	}
 	if err := s.store(ctx, next); err != nil {

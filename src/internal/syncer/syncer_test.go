@@ -276,6 +276,56 @@ func TestSaveRejectsShortPassphraseAndBadConnection(t *testing.T) {
 	}
 }
 
+func TestDraftKeepsAHalfFilledForm(t *testing.T) {
+	host := newFakeHost(t)
+	now := time.Now()
+	syncer := newSyncer(host, &now)
+	// A draft may be incomplete or temporarily invalid: the page autosaves
+	// every field, so validation stays on the paths that use the connection.
+	output, err := syncer.Handle(context.Background(), `{"action":"draft","connection":{
+		"endpoint":"https://s3.example.com","region":"auto","bucket":"b/c","prefix":"/my-snapshots/",
+		"accessKey":"ACCESS-KEY","secretKey":"SECRET-KEY","passphrase":"short"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := json.Unmarshal([]byte(output), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Settings.Endpoint != "https://s3.example.com" || state.Settings.Region != "auto" ||
+		state.Settings.Bucket != "b/c" || state.Settings.Prefix != "my-snapshots" {
+		t.Fatalf("draft lost typed values: %+v", state.Settings)
+	}
+	if stored := host.settings(t); stored.AccessKey != "ACCESS-KEY" ||
+		stored.SecretKey != "SECRET-KEY" || stored.Passphrase != "" {
+		t.Fatalf("draft stored credentials wrongly: %+v", stored)
+	}
+	if encoded, err := json.Marshal(state); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(string(encoded), "SECRET-KEY") {
+		t.Fatalf("draft state leaked a credential: %s", encoded)
+	}
+
+	// Blank credentials keep the stored values; blank connection fields
+	// clear theirs, because the page sends what the user sees.
+	if _, err := syncer.Handle(context.Background(), `{"action":"draft","connection":{
+		"endpoint":"","region":"","bucket":"bucket-name","prefix":"",
+		"accessKey":"","secretKey":"","passphrase":""}}`); err != nil {
+		t.Fatal(err)
+	}
+	stored := host.settings(t)
+	if stored.Endpoint != "" || stored.Region != "" || stored.Prefix != "" ||
+		stored.Bucket != "bucket-name" {
+		t.Fatalf("draft did not mirror cleared fields: %+v", stored)
+	}
+	if stored.AccessKey != "ACCESS-KEY" || stored.SecretKey != "SECRET-KEY" {
+		t.Fatalf("blank draft erased stored credentials: %+v", stored)
+	}
+	if _, err := syncer.Handle(context.Background(), `{"action":"draft"}`); err == nil {
+		t.Fatal("missing connection was accepted")
+	}
+}
+
 func TestScheduleOnlyAcceptsKnownIntervals(t *testing.T) {
 	host := newFakeHost(t)
 	now := time.Now()

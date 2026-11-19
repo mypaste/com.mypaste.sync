@@ -3,328 +3,534 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>同步</title>
+<title>S3 同步</title>
 <style>
+  /* First-frame values follow the host's default appearance; the host then
+     sends every name below inline on <html>, which outranks these blocks. */
   :root {
-    --surface-solid: #ffffff;
-    --surface-raised: #f6f6f3;
-    --ink: #1d1d1f;
-    --ink-soft: #6b6b70;
-    --line: #d8d8d4;
-    --accent: #2f6fed;
-    --accent-ink: #ffffff;
-    --danger: #c0392b;
-    --success: #218739;
+    --surface-solid: #f4efe6;
+    --surface-raised: #fffcf6;
+    --ink: #25211c;
+    --ink-soft: #665e53;
+    --line: rgba(73, 61, 47, 0.14);
+    --accent: #a65d2e;
+    --accent-ink: #fff8ef;
+    --danger: #b65b36;
+    --success: #607d4c;
     --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
-    --font-display: var(--font-body);
-    color-scheme: light;
-  }
-  :root[data-scheme="dark"] {
-    --surface-solid: #1c1c1e;
-    --surface-raised: #262628;
-    --ink: #f2f2f4;
-    --ink-soft: #a1a1a6;
-    --line: #3a3a3d;
-    --accent: #6f9dff;
-    --accent-ink: #101014;
-    --danger: #ff7b6f;
-    --success: #5fd07e;
-    color-scheme: dark;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; }
-  body {
-    background: var(--surface-solid);
-    color: var(--ink);
-    font: 13px/1.5 var(--font-body);
-    padding: 22px 24px 28px;
-    overflow: auto;
-  }
-  .page { max-width: 760px; }
-  h1 {
-    margin: 0;
-    font: 600 20px/1.25 var(--font-display);
-    letter-spacing: 0.01em;
-  }
-  .intro { margin: 6px 0 0; color: var(--ink-soft); }
-  .tabs {
-    display: flex;
-    gap: 22px;
-    margin: 20px 0 18px;
-    border-bottom: 1px solid var(--line);
-  }
-  .tab {
-    position: relative;
-    appearance: none;
-    border: 0;
-    background: transparent;
-    color: var(--ink-soft);
-    font: 600 12px/1 var(--font-body);
-    letter-spacing: 0.06em;
-    padding: 0 0 11px;
-    cursor: pointer;
-  }
-  .tab[aria-selected="true"] { color: var(--ink); }
-  .tab[aria-selected="true"]::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -1px;
-    height: 2px;
-    background: var(--accent);
-  }
-  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  .panel[hidden] { display: none; }
-  .card {
-    border: 1px solid var(--line);
-    background: var(--surface-raised);
-    padding: 16px;
-    display: grid;
-    gap: 13px;
-  }
-  .card + .card { margin-top: 14px; }
-  .card h2 {
-    margin: 0;
-    font: 600 13px/1.3 var(--font-display);
-    letter-spacing: 0.02em;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-  label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 12px; }
-  label.wide { grid-column: 1 / -1; }
-  input[type="url"], input[type="text"], input[type="password"], select {
-    appearance: none;
-    width: 100%;
-    height: 34px;
-    border: 1px solid var(--line);
-    background: var(--surface-solid);
-    color: var(--ink);
-    font: 13px/1 var(--font-body);
-    padding: 0 10px;
-  }
-  select {
-    padding-right: 26px;
-    background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
-      linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
-    background-position: calc(100% - 13px) 15px, calc(100% - 8px) 15px;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-  }
-  input:focus-visible, select:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 1px;
-  }
-  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  button.action {
-    appearance: none;
-    height: 32px;
-    border: 1px solid var(--line);
-    background: var(--surface-solid);
-    color: var(--ink);
-    font: 600 11px/1 var(--font-body);
-    letter-spacing: 0.04em;
-    padding: 0 14px;
-    cursor: pointer;
-  }
-  button.action.primary {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--accent-ink);
-  }
-  button.action.danger { border-color: var(--danger); color: var(--danger); }
-  button.action:hover:not(:disabled) { border-color: var(--ink-soft); }
-  button.action.primary:hover:not(:disabled) { border-color: var(--accent); }
-  button.action:disabled { opacity: 0.45; cursor: default; }
-  button.action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .note { margin: 0; color: var(--ink-soft); font-size: 12px; }
-  .warning {
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--danger);
-    background: var(--surface-solid);
-    padding: 10px 12px;
-    color: var(--ink-soft);
-    font-size: 12px;
-  }
-  .warning strong { display: block; margin-bottom: 3px; color: var(--ink); }
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    color: var(--ink);
-    font-size: 13px;
-  }
-  .check input {
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border: 1px solid var(--line);
-    background: var(--surface-solid);
-    display: grid;
-    place-content: center;
-    cursor: pointer;
-  }
-  .check input:checked { border-color: var(--accent); background: var(--accent); }
-  .check input:checked::after {
-    content: "";
-    width: 8px;
-    height: 4px;
-    border-left: 2px solid var(--accent-ink);
-    border-bottom: 2px solid var(--accent-ink);
-    transform: translateY(-1px) rotate(-45deg);
-  }
-  .status {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    min-height: 34px;
-    border-top: 1px solid var(--line);
-    padding-top: 11px;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    margin-top: 5px;
-    border-radius: 50%;
-    background: var(--ink-soft);
-    flex: none;
-  }
-  .status[data-tone="success"] .dot { background: var(--success); }
-  .status[data-tone="danger"] .dot { background: var(--danger); }
-  .status[data-tone="busy"] .dot { background: var(--accent); }
-  .status-copy { display: grid; gap: 3px; min-width: 0; }
-  .status-label { font-weight: 600; }
-  .status-detail { color: var(--ink-soft); font-size: 12px; overflow-wrap: anywhere; }
-  .feedback { min-height: 20px; margin: 14px 0 0; color: var(--ink-soft); font-size: 12px; }
-  .feedback[data-tone="danger"] { color: var(--danger); }
-  .feedback[data-tone="success"] { color: var(--success); }
-
-  /*
-   * Corner system (host D-1099): one ladder, so every box answers with the
-   * same family. A mark is 4px, a control 6px, a card or popover 10px, a
-   * floating dialog 14px, and an indicator or scrollbar is a capsule.
-   */
-  :root {
     --radius-xs: 4px;
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
     --radius-pill: 999px;
+    color-scheme: light;
   }
-  .card,
-  .warning {
-    border-radius: var(--radius-md);
+  :root[data-scheme="dark"] {
+    --surface-solid: #1b1916;
+    --surface-raised: #26231f;
+    --ink: #f3ede3;
+    --ink-soft: #b6aa9b;
+    --line: rgba(230, 216, 197, 0.12);
+    --accent: #dfa46f;
+    --accent-ink: #24180e;
+    --danger: #d58a68;
+    --success: #93b277;
+    color-scheme: dark;
   }
-  button.action,
-  input,
-  select,
-  textarea {
-    border-radius: var(--radius-sm);
+  * { box-sizing: border-box; }
+  html {
+    min-height: 100%;
+    background: var(--surface-solid);
   }
-  input[type="checkbox"] {
-    border-radius: var(--radius-xs);
+  body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--surface-solid);
+    color: var(--ink);
+    font: 13px/1.5 var(--font-body);
+    -webkit-font-smoothing: antialiased;
   }
-  .tab[aria-selected="true"]::after {
+  /* The menu canvas is about 600px tall at the default settings window, so the
+     page is a two-column sheet: the connection and its credentials sit side by
+     side, and everything below them is one row. Nothing scrolls at that size;
+     a genuinely short window falls back to one column (D-1122). */
+  .page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px 18px;
+    align-content: start;
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 24px 26px;
+  }
+  .head,
+  .notice,
+  .backup,
+  .restore,
+  .foot { grid-column: 1 / -1; }
+
+  /* The header states what the page is and, on the right, whether what is in
+     the fields has reached the extension's storage yet. */
+  .head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .head-copy { min-width: 0; }
+  .eyebrow {
+    margin: 0 0 2px;
+    color: var(--ink-soft);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+  }
+  h1 {
+    margin: 0;
+    font: 600 22px/1.15 var(--font-body);
+    letter-spacing: 0.005em;
+  }
+  .intro {
+    margin: 5px 0 0;
+    color: var(--ink-soft);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .save-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    height: 22px;
+    padding: 0 9px;
+    border: 1px solid var(--line);
     border-radius: var(--radius-pill);
+    color: var(--ink-soft);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .save-state::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .save-state[data-tone="saved"] {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 38%, var(--line));
+  }
+  .save-state[data-tone="busy"] {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  }
+  .save-state[data-tone="danger"] {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  }
+
+  .notice {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+    padding: 8px 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    font-size: 12px;
+  }
+  .notice::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    transform: translateY(-1px);
+  }
+  .notice[hidden] { display: none; }
+  .notice[data-tone="success"] { color: var(--success); }
+  .notice[data-tone="danger"] { color: var(--danger); }
+  .notice[data-tone="busy"] { color: var(--accent); }
+
+  .card {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    margin: 0;
+    padding: 16px 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+  }
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .card h2 {
+    margin: 0;
+    font: 600 13px/1.3 var(--font-body);
+    letter-spacing: 0.01em;
+  }
+  .card-hint {
+    color: var(--ink-soft);
+    font-size: 11px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+  .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  label {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    color: var(--ink-soft);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  input[type="url"],
+  input[type="text"],
+  input[type="password"],
+  select {
+    appearance: none;
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-solid);
+    color: var(--ink);
+    font: 13px/1.2 var(--font-body);
+    font-weight: 400;
+    min-width: 0;
+  }
+  input::placeholder { color: var(--ink-soft); opacity: 0.62; }
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+  input:disabled,
+  select:disabled { opacity: 0.55; }
+  select {
+    padding-right: 26px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
+      linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 15px, calc(100% - 9px) 15px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    cursor: pointer;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .note {
+    flex: 1 1 200px;
+    min-width: 0;
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  button {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-solid);
+    color: var(--ink);
+    font: 600 12px/1 var(--font-body);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover:not(:disabled) { border-color: var(--ink-soft); }
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  button.primary:hover:not(:disabled) { border-color: var(--accent); }
+  button.danger {
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+    background: transparent;
+    color: var(--danger);
+  }
+  button.danger:hover:not(:disabled) {
+    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 7%, transparent);
+  }
+
+  /* The switch is the whole row: a track, a knob, and the plan's interval on
+     the same line. */
+  .switch-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+    font-size: 12.5px;
+    font-weight: 400;
+    cursor: pointer;
+  }
+  .switch-row input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .track {
+    position: relative;
+    flex: none;
+    width: 34px;
+    height: 20px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--ink) 16%, transparent);
+    transition: background 140ms ease;
+  }
+  .track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    /* The knob is ink on the accent once the switch is on: paper on the light
+       brown of the light scheme, near-black on the tan of the dark one. */
+    background: var(--surface-raised);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    transition: transform 140ms ease, background 140ms ease;
+  }
+  .switch-row input:checked + .track { background: var(--accent); }
+  .switch-row input:checked + .track::after { background: var(--accent-ink); }
+  .switch-row input:checked + .track::after { transform: translateX(14px); }
+  .switch-row input:focus-visible + .track {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .switch-row input:disabled + .track { opacity: 0.5; }
+  .switch-title { font-weight: 600; white-space: nowrap; }
+  .interval-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: 2px;
+    color: var(--ink-soft);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .interval-wrap select { width: auto; min-width: 96px; height: 30px; }
+
+  /* One status readout for the whole backup card: what the extension knows
+     about the last run and the next one. */
+  .status {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+    padding: 7px 11px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  }
+  .dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ink-soft);
+  }
+  .status[data-tone="success"] .dot { background: var(--success); }
+  .status[data-tone="danger"] .dot { background: var(--danger); }
+  .status[data-tone="busy"] .dot { background: var(--accent); }
+  .status-copy {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .status-label { flex: none; font-size: 12px; font-weight: 600; }
+  .status-detail {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-soft);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .status-detail:empty { display: none; }
+
+  .foot {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 10.5px;
+    line-height: 1.5;
+  }
+
+  /* Restore is the one destructive action and repeats what the page already
+     says about the data, so it sits under a hairline instead of in its own
+     card. */
+  .restore {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .restore-copy { min-width: 0; }
+  .restore h2 {
+    margin: 0;
+    font: 600 12.5px/1.3 var(--font-body);
+  }
+  .restore .note { margin: 2px 0 0; }
+  .restore button { flex: none; }
+
+  /* The backup strip is one row at the sheet's width: the plan, its state and
+     the manual run read left to right. */
+  .backup {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 16px;
+  }
+  .backup .switch-row { flex: none; }
+  .backup button { flex: none; }
+
+  /* The sidebar arrangement leaves the menu canvas about 700px wide: the
+     credentials pair up there and the passphrase takes the row below, so the
+     sheet keeps its two columns and its one-screen fit (D-1114, D-1122). */
+  @media (max-width: 900px) {
+    .page { gap: 14px 16px; padding: 20px 22px; }
+    .card { padding: 14px 16px 16px; }
+    .grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three > label:last-child { grid-column: 1 / -1; }
+  }
+
+  /* Below the sheet's width the columns stack and the page scrolls: a window
+     this narrow is the genuine fallback D-1122 allows. */
+  @media (max-width: 620px) {
+    .page { grid-template-columns: minmax(0, 1fr); padding: 18px 20px 20px; }
+    .grid,
+    .grid.three { grid-template-columns: minmax(0, 1fr); }
+    .grid.three > label:last-child { grid-column: auto; }
+    .head { flex-direction: column; gap: 10px; }
+    .switch-row { flex-wrap: wrap; }
+    .backup { flex-wrap: wrap; }
+    .status { flex-basis: 100%; }
+    .restore { align-items: flex-start; flex-direction: column; gap: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .track, .track::after { transition: none; }
   }
 </style>
 </head>
 <body>
 <main class="page">
-  <h1>同步</h1>
-  <p class="intro">把加密后的 MyPaste 快照上传到你自己的 S3 存储桶。连接、归档、加密与上传都由这个扩展完成；扩展只经宿主提供的只读服务读取历史与图片。</p>
+  <header class="head">
+    <div class="head-copy">
+      <p class="eyebrow">备份与恢复</p>
+      <h1>S3 同步</h1>
+      <p class="intro">历史与图片加密后上传到你的 S3 存储桶，需要时再恢复。</p>
+    </div>
+    <span class="save-state" id="save-state" data-tone="idle">改动自动保存</span>
+  </header>
 
-  <div class="tabs" role="tablist" aria-label="同步设置">
-    <button class="tab" id="tab-connection" role="tab" type="button" aria-selected="true" aria-controls="panel-connection" tabindex="0">连接</button>
-    <button class="tab" id="tab-schedule" role="tab" type="button" aria-selected="false" aria-controls="panel-schedule" tabindex="-1">自动上传</button>
+  <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>连接</h2>
+      <span class="card-hint">留空端点时按区域连接 AWS</span>
+    </div>
+    <div class="grid">
+      <label>端点
+        <input id="endpoint" type="url" spellcheck="false" autocomplete="off" placeholder="https://s3.example.com">
+      </label>
+      <label>区域
+        <input id="region" type="text" spellcheck="false" autocomplete="off" placeholder="us-east-1">
+      </label>
+      <label>存储桶
+        <input id="bucket" type="text" spellcheck="false" autocomplete="off" placeholder="my-clipboard-backups">
+      </label>
+      <label>前缀
+        <input id="prefix" type="text" spellcheck="false" autocomplete="off" placeholder="mypaste/">
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>凭据</h2>
+      <span class="card-hint">留空则保留已存值</span>
+    </div>
+    <div class="grid three">
+      <label>Access Key
+        <input id="access-key" type="password" spellcheck="false" autocomplete="new-password" placeholder="AKIA…">
+      </label>
+      <label>Secret Key
+        <input id="secret-key" type="password" spellcheck="false" autocomplete="new-password" placeholder="••••••••">
+      </label>
+      <label>加密口令
+        <input id="passphrase" type="password" spellcheck="false" autocomplete="new-password" placeholder="至少 12 个字符">
+      </label>
+    </div>
+    <div class="row">
+      <button id="test" type="button">测试连接</button>
+      <p class="note">只写入扩展的私有存储（0600），不回页面，也不进日志。</p>
+    </div>
+  </section>
+
+  <section class="card backup">
+    <label class="switch-row">
+      <input id="enabled" type="checkbox" role="switch">
+      <span class="track" aria-hidden="true"></span>
+      <span class="switch-title">按计划自动上传</span>
+      <span class="interval-wrap"><select id="interval" aria-label="上传间隔"></select></span>
+    </label>
+    <div class="status" id="status" data-tone="disabled" role="status" aria-live="polite">
+      <span class="dot" aria-hidden="true"></span>
+      <div class="status-copy">
+        <span class="status-label" id="status-label">未配置</span>
+        <span class="status-detail" id="status-detail"></span>
+      </div>
+    </div>
+    <button class="primary" id="run" type="button">立即上传</button>
+  </section>
+
+  <div class="restore">
+    <div class="restore-copy">
+      <h2>从远端恢复</h2>
+      <p class="note">下载远端最新的加密快照，解密后交给宿主确认。恢复会替换本机的历史、看板与设置。</p>
+    </div>
+    <button class="danger" id="restore" type="button">从远端恢复</button>
   </div>
 
-  <section class="panel" id="panel-connection" role="tabpanel" aria-labelledby="tab-connection">
-    <div class="card">
-      <h2>S3 存储桶</h2>
-      <div class="grid">
-        <label>Endpoint
-          <input id="endpoint" type="url" spellcheck="false" autocomplete="off" placeholder="https://s3.example.com">
-        </label>
-        <label>Region
-          <input id="region" type="text" spellcheck="false" autocomplete="off" placeholder="us-east-1">
-        </label>
-        <label>Bucket
-          <input id="bucket" type="text" spellcheck="false" autocomplete="off" placeholder="my-clipboard-backups">
-        </label>
-        <label>Prefix
-          <input id="prefix" type="text" spellcheck="false" autocomplete="off" placeholder="mypaste/">
-        </label>
-      </div>
-      <p class="note">留空 Endpoint 时按 Region 连接 AWS。对象只包含加密后的备份归档。</p>
-    </div>
-
-    <div class="card">
-      <h2>凭据</h2>
-      <div class="grid">
-        <label>Access Key
-          <input id="access-key" type="password" spellcheck="false" autocomplete="new-password" placeholder="留空则保留已存值">
-        </label>
-        <label>Secret Key
-          <input id="secret-key" type="password" spellcheck="false" autocomplete="new-password" placeholder="留空则保留已存值">
-        </label>
-        <label class="wide">加密口令
-          <input id="passphrase" type="password" spellcheck="false" autocomplete="new-password" placeholder="至少 12 个字符；留空则保留已存值">
-        </label>
-      </div>
-      <p class="note">凭据与口令保存在扩展自己的私有存储（0600）中，不会回到页面，也不会写入日志。</p>
-    </div>
-
-    <div class="actions">
-      <button class="action primary" id="save" type="button">保存连接</button>
-      <button class="action" id="test" type="button">测试连接</button>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" hidden>
-    <div class="card">
-      <h2>自动上传</h2>
-      <label class="check"><input id="enabled" type="checkbox"> 按计划自动上传加密快照</label>
-      <label>上传间隔
-        <select id="interval"></select>
-      </label>
-      <div class="actions">
-        <button class="action primary" id="save-schedule" type="button">保存计划</button>
-      </div>
-      <p class="note">保存计划会立即写入设置；关闭自动上传不会删除远端已有的快照。</p>
-    </div>
-
-    <div class="card">
-      <h2>立即上传</h2>
-      <div class="status" id="status" data-tone="disabled" role="status" aria-live="polite">
-        <span class="dot" aria-hidden="true"></span>
-        <div class="status-copy">
-          <span class="status-label" id="status-label">未配置</span>
-          <span class="status-detail" id="status-detail">填写存储桶与凭据后即可测试。</span>
-        </div>
-      </div>
-      <div class="actions">
-        <button class="action" id="run" type="button">立即上传</button>
-      </div>
-      <div class="warning">
-        <strong>远端对象是加密归档</strong>
-        <span>对象命名、上传顺序与本地临时文件都由扩展控制；页面不能读取 Bucket 内容、密钥或本地路径。</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>远端恢复</h2>
-      <p class="note">下载远端最新的加密快照，解密后交给宿主校验并恢复。宿主会再次确认，恢复会替换本机的历史、看板与设置。</p>
-      <div class="actions">
-        <button class="action danger" id="restore" type="button">从远端恢复</button>
-      </div>
-    </div>
-  </section>
-
-  <p class="feedback" id="feedback" role="status" aria-live="polite"></p>
+  <footer class="foot">远端对象只包含加密后的备份归档。扩展只经宿主提供的只读服务读取历史与图片；页面不能读取 Bucket 内容、密钥或本地路径。</footer>
 </main>
 
 <script>
@@ -334,6 +540,10 @@
   var sequence = 0;
   var state = null;
   var busy = 0;
+  var edited = false;
+  // Autosave state: one debounce timer, one request in flight, and the last
+  // payload that reached storage, so an unchanged form never starts a process.
+  var draft = { timer: 0, running: false, again: false, last: "", promise: null };
 
   var root = document.documentElement;
   var fields = {
@@ -345,19 +555,19 @@
     secretKey: document.getElementById("secret-key"),
     passphrase: document.getElementById("passphrase")
   };
+  var fieldKeys = Object.keys(fields);
+  var credentialKeys = ["accessKey", "secretKey", "passphrase"];
   var enabled = document.getElementById("enabled");
   var interval = document.getElementById("interval");
-  var save = document.getElementById("save");
   var test = document.getElementById("test");
-  var saveSchedule = document.getElementById("save-schedule");
   var run = document.getElementById("run");
   var restore = document.getElementById("restore");
-  var feedback = document.getElementById("feedback");
+  var saveState = document.getElementById("save-state");
+  var noticeBar = document.getElementById("notice");
   var status = document.getElementById("status");
   var statusLabel = document.getElementById("status-label");
   var statusDetail = document.getElementById("status-detail");
-  var tabs = [document.getElementById("tab-connection"), document.getElementById("tab-schedule")];
-  var panels = [document.getElementById("panel-connection"), document.getElementById("panel-schedule")];
+  var noticeTimer = 0;
 
   // The page talks to its own package's runtime through the menu channel's
   // invoke method; the runtime answers with one JSON string per request.
@@ -409,10 +619,8 @@
     else entry.reject(new Error(message.error || "操作失败"));
   });
 
-  function message(text, tone) {
-    feedback.textContent = text || "";
-    if (tone) feedback.dataset.tone = tone;
-    else delete feedback.dataset.tone;
+  function errorText(error) {
+    return error && error.message ? error.message : "操作失败";
   }
 
   function word(key, fallback) {
@@ -424,22 +632,95 @@
   }
 
   function when(value) {
-    if (!value) return "";
+    if (value === undefined || value === null || value === "") return "";
     var date = new Date(value);
-    return isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN");
+    return isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
+  function stamp() {
+    return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function setSaveState(text, tone) {
+    saveState.textContent = text;
+    if (tone) saveState.dataset.tone = tone;
+    else delete saveState.dataset.tone;
+    saveState.removeAttribute("title");
+  }
+
+  function notice(text, tone) {
+    window.clearTimeout(noticeTimer);
+    noticeBar.textContent = text || "";
+    if (tone) noticeBar.dataset.tone = tone;
+    else delete noticeBar.dataset.tone;
+    noticeBar.hidden = !text;
+    if (text && tone === "success") {
+      noticeTimer = window.setTimeout(function () { noticeBar.hidden = true; }, 6000);
+    }
+  }
+
+  function connection() {
+    return {
+      endpoint: fields.endpoint.value.trim(),
+      region: fields.region.value.trim(),
+      bucket: fields.bucket.value.trim(),
+      prefix: fields.prefix.value.trim(),
+      accessKey: fields.accessKey.value,
+      secretKey: fields.secretKey.value,
+      passphrase: fields.passphrase.value
+    };
+  }
+
+  function scheduleDraft(delay) {
+    window.clearTimeout(draft.timer);
+    draft.timer = window.setTimeout(flushDraft, delay);
+  }
+
+  // flushDraft writes what the page currently holds. It coalesces: while one
+  // request is in flight a newer edit only sets `again`, and the follow-up
+  // runs as soon as the first one settles.
+  function flushDraft() {
+    window.clearTimeout(draft.timer);
+    draft.timer = 0;
+    if (busy > 0) { draft.again = true; return Promise.resolve(); }
+    if (draft.running) { draft.again = true; return draft.promise; }
+    var payload = connection();
+    var encoded = JSON.stringify(payload);
+    if (encoded === draft.last) return Promise.resolve();
+    setSaveState("正在保存…", "busy");
+    draft.running = true;
+    draft.promise = call("draft", { connection: payload }).then(function (next) {
+      draft.last = encoded;
+      if (next) applyState(next, true);
+      setSaveState("已保存 · " + stamp(), "saved");
+    }, function (error) {
+      setSaveState("保存失败", "danger");
+      saveState.setAttribute("title", errorText(error));
+    }).then(function () {
+      draft.running = false;
+      if (draft.again) {
+        draft.again = false;
+        return flushDraft();
+      }
+      return null;
+    });
+    return draft.promise;
   }
 
   function renderStatus() {
     if (!state) return;
-    var current = state.status;
-    var settings = state.settings;
+    var current = state.status || {};
+    var settings = state.settings || {};
     var tone = "disabled";
     var label = "已暂停";
     var detail = "";
     if (current.running) {
       tone = "busy";
       label = "正在上传";
-      detail = "完成后会显示本次对象与字节数。";
+      detail = "完成后会显示本次对象与大小。";
     } else if (current.lastError) {
       tone = "danger";
       label = "上次上传失败";
@@ -447,7 +728,7 @@
     } else if (!settings.configured) {
       tone = "disabled";
       label = "未配置";
-      detail = "填写存储桶与凭据后即可测试。";
+      detail = "填写存储桶与凭据后即可测试连接。";
     } else if (!settings.passphraseSet) {
       tone = "disabled";
       label = "需要加密口令";
@@ -460,30 +741,39 @@
         : "按计划上传加密快照。";
     } else if (current.lastSuccessAt) {
       tone = "success";
-      label = "已暂停自动上传";
+      label = "自动上传已关闭";
       detail = "上次成功：" + when(current.lastSuccessAt) +
         (current.lastObject ? " · " + current.lastObject : "");
     } else {
-      detail = "可以立即上传一份快照。";
+      tone = "disabled";
+      label = "可以立即上传";
+      detail = "也可以打开自动上传，让扩展按间隔执行。";
     }
     status.dataset.tone = tone;
     statusLabel.textContent = label;
     statusDetail.textContent = detail;
-    var canRun = settings.configured && settings.passphraseSet && !current.running;
-    run.disabled = busy > 0 || !canRun;
-    restore.disabled = busy > 0 || !canRun;
-    test.disabled = busy > 0 || !settings.configured;
   }
 
-  function apply(next) {
-    state = next;
-    var settings = next.settings;
-    fields.endpoint.value = settings.endpoint || "";
-    fields.region.value = settings.region || "";
-    fields.bucket.value = settings.bucket || "";
-    fields.prefix.value = settings.prefix || "";
-    enabled.checked = Boolean(next.status.enabled);
-    var choices = next.intervalChoices || [];
+  function syncControls() {
+    var disabled = busy > 0;
+    fieldKeys.forEach(function (key) { fields[key].disabled = disabled; });
+    enabled.disabled = disabled;
+    interval.disabled = disabled || !enabled.checked;
+    var settings = state && state.settings ? state.settings : {};
+    var running = state && state.status ? Boolean(state.status.running) : false;
+    var ready = Boolean(settings.configured && settings.passphraseSet) && !running;
+    test.disabled = disabled || !settings.configured;
+    run.disabled = disabled || !ready;
+    restore.disabled = disabled || !ready;
+  }
+
+  function renderInterval(choices) {
+    if (!choices || !choices.length) return;
+    var signature = choices.map(function (choice) {
+      return choice.value + ":" + choice.label;
+    }).join("|");
+    if (interval.dataset.signature === signature) return;
+    interval.dataset.signature = signature;
     interval.textContent = "";
     choices.forEach(function (choice) {
       var option = document.createElement("option");
@@ -491,147 +781,145 @@
       option.textContent = choice.label;
       interval.appendChild(option);
     });
-    interval.value = String(next.status.intervalHours);
-    interval.disabled = busy > 0;
-    enabled.disabled = busy > 0;
-    save.textContent = word("save", "保存连接");
+  }
+
+  // keepFields leaves the inputs alone; a draft or schedule reply echoes what
+  // the page already shows, and rewriting them would move the caret.
+  function applyState(next, keepFields) {
+    if (!next) return;
+    state = next;
+    var settings = next.settings || {};
+    var current = next.status || {};
+    if (!keepFields && !edited) {
+      fields.endpoint.value = settings.endpoint || "";
+      fields.region.value = settings.region || "";
+      fields.bucket.value = settings.bucket || "";
+      fields.prefix.value = settings.prefix || "";
+      draft.last = JSON.stringify(connection());
+    }
+    renderInterval(next.intervalChoices);
+    enabled.checked = Boolean(current.enabled);
+    interval.value = String(current.intervalHours || 24);
     test.textContent = word("test", "测试连接");
     run.textContent = word("upload", "立即上传");
     restore.textContent = word("restore", "从远端恢复");
     renderStatus();
+    syncControls();
   }
 
   function setBusy(delta) {
     busy += delta;
-    save.disabled = busy > 0;
-    saveSchedule.disabled = busy > 0;
-    fields.endpoint.disabled = busy > 0;
-    fields.region.disabled = busy > 0;
-    fields.bucket.disabled = busy > 0;
-    fields.prefix.disabled = busy > 0;
-    fields.accessKey.disabled = busy > 0;
-    fields.secretKey.disabled = busy > 0;
-    fields.passphrase.disabled = busy > 0;
-    enabled.disabled = busy > 0;
-    interval.disabled = busy > 0;
-    restore.disabled = busy > 0;
-    if (state) {
-      save.disabled = busy > 0;
-      saveSchedule.disabled = busy > 0;
-      renderStatus();
+    if (busy < 0) busy = 0;
+    syncControls();
+    if (busy === 0 && draft.again) {
+      draft.again = false;
+      flushDraft();
     }
   }
 
-  async function perform(pendingText, task, successText) {
-    setBusy(1);
-    message(pendingText);
-    try {
-      var value = await task();
-      if (value) apply(value);
-      if (successText) message(successText, "success");
-      return value;
-    } catch (error) {
-      // A failed upload records its own sentence in the extension's state;
-      // refresh it so the status line explains what happened.
-      try {
-        apply(await call("state"));
-      } catch (ignored) {
-        // The status line keeps the previous state when even that fails.
-      }
-      message(error instanceof Error ? error.message : "操作失败", "danger");
-      throw error;
-    } finally {
-      setBusy(-1);
-    }
-  }
-
-  save.addEventListener("click", function () {
-    perform("正在保存连接…", function () {
-      return call("save", {
-        connection: {
-          endpoint: fields.endpoint.value.trim(),
-          region: fields.region.value.trim(),
-          bucket: fields.bucket.value.trim(),
-          prefix: fields.prefix.value.trim(),
-          accessKey: fields.accessKey.value,
-          secretKey: fields.secretKey.value,
-          passphrase: fields.passphrase.value
-        }
+  // perform runs one action after the pending draft lands, so a test or an
+  // upload always uses the connection the user just typed.
+  function perform(pendingText, task, successText) {
+    if (busy > 0) return Promise.resolve();
+    return flushDraft().then(function () {
+      setBusy(1);
+      notice(pendingText || "", "busy");
+      return task().then(function (message) {
+        notice(message || successText || "", "success");
+      }, function (error) {
+        notice(errorText(error), "danger");
+        // A failed upload records its own sentence in the extension's state;
+        // refresh it so the status line explains what happened.
+        return call("state").then(function (next) {
+          applyState(next, true);
+        }, function () {
+          // The status line keeps the previous state when even that fails.
+        });
+      }).then(function () {
+        setBusy(-1);
       });
-    }, "连接已保存").then(function () {
-      fields.accessKey.value = "";
-      fields.secretKey.value = "";
-      fields.passphrase.value = "";
-    }).catch(function () {});
+    });
+  }
+
+  ["endpoint", "region", "bucket", "prefix"].forEach(function (key) {
+    fields[key].addEventListener("input", function () {
+      edited = true;
+      scheduleDraft(500);
+    });
+    fields[key].addEventListener("blur", function () { flushDraft(); });
   });
+  // A credential is written after a longer pause than a bucket name, and at
+  // the latest when the field loses focus: a fragment typed on the way to a
+  // real key should not replace a working one on every pause.
+  credentialKeys.forEach(function (key) {
+    fields[key].addEventListener("input", function () {
+      edited = true;
+      scheduleDraft(1200);
+    });
+    fields[key].addEventListener("blur", function () { flushDraft(); });
+  });
+  // Closing or hiding the page still writes one last time.
+  window.addEventListener("pagehide", function () { flushDraft(); });
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) flushDraft();
+  });
+
+  function saveSchedule() {
+    if (busy > 0) return;
+    setBusy(1);
+    setSaveState("正在保存…", "busy");
+    call("schedule", {
+      schedule: { enabled: enabled.checked, intervalHours: Number(interval.value) }
+    }).then(function (next) {
+      applyState(next, true);
+      setSaveState("已保存 · " + stamp(), "saved");
+      setBusy(-1);
+    }, function (error) {
+      setSaveState("保存失败", "danger");
+      saveState.setAttribute("title", errorText(error));
+      // Put the controls back in step with what is actually stored.
+      return call("state").then(function (next) {
+        applyState(next, true);
+      }, function () {}).then(function () { setBusy(-1); });
+    });
+  }
+  enabled.addEventListener("change", saveSchedule);
+  interval.addEventListener("change", saveSchedule);
 
   test.addEventListener("click", function () {
     perform("正在测试连接…", function () {
-      return call("test");
-    }, "连接成功").catch(function () {});
-  });
-
-  saveSchedule.addEventListener("click", function () {
-    perform("正在保存计划…", function () {
-      return call("schedule", {
-        schedule: {
-          enabled: enabled.checked,
-          intervalHours: Number(interval.value)
-        }
+      return call("test").then(function (next) {
+        applyState(next, true);
+        return "连接测试通过";
       });
-    }, "计划已保存").catch(function () {});
+    });
   });
 
   run.addEventListener("click", function () {
-    perform("正在上传…", function () {
-      return call("run").then(function (runResult) {
-        apply(runResult.state);
-        var bytes = Number(runResult.result.bytes || 0).toLocaleString("zh-CN");
-        message("已上传 " + bytes + " 字节 · " + runResult.result.object, "success");
-        return runResult.state;
+    perform("正在加密并上传…", function () {
+      return call("run").then(function (outcome) {
+        if (outcome && outcome.state) applyState(outcome.state, true);
+        var outcomeResult = outcome && outcome.result ? outcome.result : {};
+        var bytes = Number(outcomeResult.bytes || 0).toLocaleString("zh-CN");
+        return "已上传 " + bytes + " 字节" +
+          (outcomeResult.object ? " · " + outcomeResult.object : "");
       });
-    }, "").catch(function () {});
+    });
   });
 
   restore.addEventListener("click", function () {
-    perform("正在下载远端快照…", function () {
+    perform("正在下载并解密远端快照…", function () {
       return call("restore").then(function (outcome) {
-        if (outcome.state) apply(outcome.state);
-        if (outcome.result && outcome.result.cancelled) {
-          message("已取消恢复，本机数据未改变", "");
-        } else {
-          var items = Number((outcome.result && outcome.result.items) || 0).toLocaleString("zh-CN");
-          message("已恢复 " + items + " 条历史", "success");
-        }
-        return outcome.state;
+        if (outcome && outcome.state) applyState(outcome.state, true);
+        if (outcome && outcome.result && outcome.result.cancelled) return "已取消恢复";
+        return "已从远端恢复";
       });
-    }, "").catch(function () {});
-  });
-
-  function selectTab(index, focus) {
-    tabs.forEach(function (tab, position) {
-      var selected = position === index;
-      tab.setAttribute("aria-selected", String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      panels[position].hidden = !selected;
-      if (selected && focus) tab.focus();
-    });
-  }
-
-  tabs.forEach(function (tab, index) {
-    tab.addEventListener("click", function () { selectTab(index); });
-    tab.addEventListener("keydown", function (event) {
-      var next = index;
-      if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
-      else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length;
-      else return;
-      event.preventDefault();
-      selectTab(next, true);
     });
   });
 
-  // 宿主看不到 frame 内部的按键，Esc 由页面自己接：经菜单通道请宿主关闭
-  // 设置窗口（D-1107）。close 是即发即忘的，没有请求号。
+  // The host cannot see key presses inside the frame, so Esc asks it to close
+  // the settings window through the menu channel (D-1107). Close carries no
+  // request id: it is fire-and-forget.
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -639,8 +927,11 @@
   });
 
   parent.postMessage({ v: 1, type: "ready" }, "*");
-  call("state").then(apply).catch(function (error) {
-    message(error instanceof Error ? error.message : "无法读取同步设置", "danger");
+  call("state").then(function (next) {
+    applyState(next, false);
+  }, function (error) {
+    notice("无法读取同步设置：" + errorText(error), "danger");
+    syncControls();
   });
 })();
 </script>
