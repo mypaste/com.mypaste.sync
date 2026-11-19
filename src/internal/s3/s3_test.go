@@ -34,6 +34,48 @@ func TestSignMatchesAWSVector(t *testing.T) {
 	}
 }
 
+// The signature is defined on UTC: Format on a local time prints the local
+// wall clock and appends a literal Z, which every endpoint rejects as a skewed
+// clock. The test's zone is +08:00, so a regression shows up as 16:44:43Z.
+func TestSignFormatsTheDateInUTC(t *testing.T) {
+	zone := time.FixedZone("CST", 8*60*60)
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/bucket", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{Region: "auto", AccessKeyID: "AKIDEXAMPLE", SecretAccessKey: "secret"}
+	signer := &Signer{Now: func() time.Time {
+		return time.Date(2026, time.November, 19, 16, 44, 43, 0, zone)
+	}}
+	signer.Sign(req, config, EmptyPayloadHash)
+	if got := req.Header.Get("X-Amz-Date"); got != "20261119T084443Z" {
+		t.Fatalf("x-amz-date = %q, want the UTC instant", got)
+	}
+	if got := req.Header.Get("Authorization"); !strings.Contains(got, "/20261119/auto/s3/aws4_request") {
+		t.Fatalf("credential scope = %q", got)
+	}
+}
+
+// ErrorCode is what turns a bare 403 into an actionable message.
+func TestErrorCodeReadsTheXMLCode(t *testing.T) {
+	body := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
+		`<Error><Code>RequestTimeTooSkewed</Code><Message>skew</Message></Error>`)
+	if got := ErrorCode(body); got != "RequestTimeTooSkewed" {
+		t.Fatalf("code = %q", got)
+	}
+	for _, bad := range []string{
+		"",
+		"not xml at all",
+		`<Error><Code>bad code</Code></Error>`,
+		`<Error><Code>` + strings.Repeat("a", 65) + `</Code></Error>`,
+		`<Error><Code>&lt;script&gt;</Code></Error>`,
+	} {
+		if got := ErrorCode([]byte(bad)); got != "" {
+			t.Fatalf("%q parsed as %q", bad, got)
+		}
+	}
+}
+
 func TestObjectURLKeepsBucketPathAndPrefix(t *testing.T) {
 	config := Config{Bucket: "my-bucket", Prefix: "/snap shots/"}
 	object, err := config.ObjectURL("20260101-000000-backup.zip")

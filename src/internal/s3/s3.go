@@ -152,7 +152,7 @@ func (s *Signer) Sign(req *http.Request, config Config, payloadHash string) {
 	if s != nil && s.Now != nil {
 		now = s.Now
 	}
-	current := now()
+	current := now().UTC()
 	amzDate := current.Format("20060102T150405Z")
 	date := current.Format("20060102")
 	req.Header.Set("Host", req.URL.Host)
@@ -221,6 +221,35 @@ func ParseList(body []byte) ([]ListEntry, string, error) {
 		return result.Contents, "", nil
 	}
 	return result.Contents, result.NextContinuationToken, nil
+}
+
+type errorResult struct {
+	Code string `xml:"Code"`
+}
+
+// ErrorCode reads the S3 error code out of an XML error body, for example
+// "RequestTimeTooSkewed" or "AccessDenied". A body that is not an S3 error
+// yields "", so callers fall back to the status alone. The value is echoed to
+// the page, so it is kept to a short, boring identifier.
+func ErrorCode(body []byte) string {
+	var result errorResult
+	if err := xml.Unmarshal(body, &result); err != nil {
+		return ""
+	}
+	code := strings.TrimSpace(result.Code)
+	if code == "" || len(code) > 64 {
+		return ""
+	}
+	for _, character := range code {
+		letter := character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '.' || character == '-' || character == '_'
+		if !letter {
+			return ""
+		}
+	}
+	return code
 }
 
 // Latest picks the newest object. A zero LastModified (an endpoint that omits

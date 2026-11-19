@@ -453,7 +453,7 @@ func (s *Syncer) upload(ctx context.Context) (UploadResult, State, error) {
 		return UploadResult{}, State{}, s.failure(ctx, current, err)
 	}
 	if response.Status < 200 || response.Status >= 300 {
-		err := s3Error("上传", response.Status)
+		err := s3Failure("上传", response)
 		return UploadResult{}, State{}, s.failure(ctx, current, err)
 	}
 	now := s.now().UnixMilli()
@@ -579,7 +579,7 @@ func (s *Syncer) list(ctx context.Context, config s3.Config, maxKeys int) ([]s3.
 			return nil, err
 		}
 		if response.Status < 200 || response.Status >= 300 {
-			return nil, s3Error("读取远端对象列表", response.Status)
+			return nil, s3Failure("读取远端对象列表", response)
 		}
 		body, err := decodeBody(response)
 		if err != nil {
@@ -630,7 +630,7 @@ func (s *Syncer) download(ctx context.Context, config s3.Config, key string, siz
 			return nil, errors.New("远端存储不支持分段下载")
 		}
 		if response.Status != http.StatusPartialContent && response.Status != http.StatusOK {
-			return nil, s3Error("下载", response.Status)
+			return nil, s3Failure("下载", response)
 		}
 		chunk, err := decodeBody(response)
 		if err != nil {
@@ -678,16 +678,36 @@ func decodeBody(response hook.BackupResponse) ([]byte, error) {
 	return data, nil
 }
 
-func s3Error(action string, status int) error {
+// s3Failure names the reason, not just the status: "认证或存储桶权限失败" covers
+// an expired key, a read-only token and a clock the endpoint refuses alike, so
+// the S3 error code travels with the message when the body carries one.
+func s3Failure(action string, response hook.BackupResponse) error {
+	code := ""
+	if response.Body != nil {
+		if data, err := base64.StdEncoding.DecodeString(*response.Body); err == nil {
+			code = s3.ErrorCode(data)
+		}
+	}
+	return s3Error(action, response.Status, code)
+}
+
+func s3Error(action string, status int, code string) error {
+	if code == "RequestTimeTooSkewed" {
+		return fmt.Errorf("%s失败：本机时间与 S3 服务器相差过大，请校准系统时间（%s）", action, code)
+	}
+	suffix := ""
+	if code != "" {
+		suffix = "（" + code + "）"
+	}
 	switch status {
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("%s失败：S3 认证或存储桶权限失败", action)
+		return fmt.Errorf("%s失败：S3 认证或存储桶权限失败%s", action, suffix)
 	case http.StatusNotFound:
-		return fmt.Errorf("%s失败：存储桶或对象不存在", action)
+		return fmt.Errorf("%s失败：存储桶或对象不存在%s", action, suffix)
 	case http.StatusConflict, http.StatusPreconditionFailed:
-		return fmt.Errorf("%s失败：同名对象已存在", action)
+		return fmt.Errorf("%s失败：同名对象已存在%s", action, suffix)
 	case http.StatusRequestedRangeNotSatisfiable:
-		return fmt.Errorf("%s失败：远端对象不支持分段读取", action)
+		return fmt.Errorf("%s失败：远端对象不支持分段读取%s", action, suffix)
 	}
 	return s3.StatusError(action, status)
 }

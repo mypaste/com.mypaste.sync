@@ -502,6 +502,50 @@ func TestUploadExistingObjectIsReadable(t *testing.T) {
 	}
 }
 
+// A 403 can be an expired key, a read-only token or a clock the endpoint
+// refuses. The S3 error code is what tells them apart, so it has to reach the
+// page instead of being flattened into the status mapping.
+func TestUploadForbiddenKeepsTheErrorCode(t *testing.T) {
+	host := newFakeHost(t)
+	now := time.Date(2026, time.November, 19, 9, 0, 0, 0, time.UTC)
+	syncer := newSyncer(host, &now)
+	host.saveConnection(t, syncer)
+	body := base64.StdEncoding.EncodeToString([]byte(
+		`<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code>` +
+			`<Message>Access Denied</Message></Error>`))
+	host.request = func(hook.BackupRequest) (hook.BackupResponse, error) {
+		return hook.BackupResponse{Status: 403, Body: &body}, nil
+	}
+	_, _, err := syncer.upload(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "认证或存储桶权限失败（AccessDenied）") {
+		t.Fatalf("403 with a code mapped to %v", err)
+	}
+}
+
+// Cloudflare R2 answers a signature made from a local wall clock with
+// RequestTimeTooSkewed. Naming the clock tells the person what to fix; the
+// generic "credentials or bucket permission" wording would send them to the
+// wrong place.
+func TestUploadSkewedClockIsNamed(t *testing.T) {
+	host := newFakeHost(t)
+	now := time.Date(2026, time.November, 19, 9, 0, 0, 0, time.UTC)
+	syncer := newSyncer(host, &now)
+	host.saveConnection(t, syncer)
+	body := base64.StdEncoding.EncodeToString([]byte(
+		`<?xml version="1.0" encoding="UTF-8"?><Error><Code>RequestTimeTooSkewed</Code>` +
+			`<Message>The difference between the request time and the server's time is too large.</Message></Error>`))
+	host.request = func(hook.BackupRequest) (hook.BackupResponse, error) {
+		return hook.BackupResponse{Status: 403, Body: &body}, nil
+	}
+	_, _, err := syncer.upload(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "本机时间与 S3 服务器相差过大") {
+		t.Fatalf("skewed clock mapped to %v", err)
+	}
+	if strings.Contains(err.Error(), "认证或存储桶权限失败") {
+		t.Fatalf("skewed clock still blamed the credentials: %v", err)
+	}
+}
+
 func TestRestoreDownloadsDecryptsAndConfirms(t *testing.T) {
 	host := newFakeHost(t)
 	now := time.Date(2026, time.November, 10, 9, 0, 0, 0, time.UTC)
