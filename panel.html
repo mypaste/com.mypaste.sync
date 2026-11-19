@@ -53,7 +53,10 @@
   /* The menu canvas is about 600px tall at the default settings window, so the
      page is a two-column sheet: the connection and its credentials sit side by
      side, and everything below them is one row. Nothing scrolls at that size;
-     a genuinely short window falls back to one column (D-1122). */
+     a genuinely short window falls back to one column (D-1122). The page adds
+     no side gutter of its own: the settings canvas already supplies one
+     (D-1085, D-1115), and a second one would inset this sheet against every
+     built-in panel beside it. */
   .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -61,7 +64,7 @@
     align-content: start;
     max-width: 1040px;
     margin: 0 auto;
-    padding: 24px 26px;
+    padding: 24px 0;
   }
   .head,
   .notice,
@@ -425,7 +428,7 @@
      credentials pair up there and the passphrase takes the row below, so the
      sheet keeps its two columns and its one-screen fit (D-1114, D-1122). */
   @media (max-width: 900px) {
-    .page { gap: 14px 16px; padding: 20px 22px; }
+    .page { gap: 14px 16px; padding: 20px 0; }
     .card { padding: 14px 16px 16px; }
     .grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .grid.three > label:last-child { grid-column: 1 / -1; }
@@ -434,7 +437,7 @@
   /* Below the sheet's width the columns stack and the page scrolls: a window
      this narrow is the genuine fallback D-1122 allows. */
   @media (max-width: 620px) {
-    .page { grid-template-columns: minmax(0, 1fr); padding: 18px 20px 20px; }
+    .page { grid-template-columns: minmax(0, 1fr); padding: 18px 0 20px; }
     .grid,
     .grid.three { grid-template-columns: minmax(0, 1fr); }
     .grid.three > label:last-child { grid-column: auto; }
