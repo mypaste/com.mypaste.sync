@@ -521,7 +521,9 @@ func (s *Syncer) restore(ctx context.Context) (RestoreResult, State, error) {
 		Assets: result.Assets, Bytes: result.Bytes}, state, nil
 }
 
-// writeHandle writes bytes through backup.sync in one-MiB appends.
+// writeHandle writes bytes through backup.sync in one-MiB appends. The host
+// answers each write with the handle's total length after the append, not the
+// size of the chunk it just took.
 func (s *Syncer) writeHandle(ctx context.Context, data []byte) (string, error) {
 	handle := ""
 	var offset int64
@@ -542,7 +544,7 @@ func (s *Syncer) writeHandle(ctx context.Context, data []byte) (string, error) {
 		if handle == "" {
 			handle = written.Handle
 		}
-		if written.Bytes != end-offset {
+		if written.Bytes != end {
 			return "", errors.New("同步写入长度不一致")
 		}
 		offset = end

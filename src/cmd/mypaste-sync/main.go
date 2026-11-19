@@ -17,7 +17,7 @@ import (
 )
 
 // Version is the extension version written into archive manifests.
-const Version = "1.0.7"
+const Version = "1.0.8"
 
 const (
 	commandRequest = "sync.request"

@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -536,6 +537,36 @@ func TestRestoreDownloadsDecryptsAndConfirms(t *testing.T) {
 	}
 	if envelope.State.Settings.Bucket != "bucket-name" {
 		t.Fatalf("state after restore: %+v", envelope.State)
+	}
+}
+
+// A real snapshot is far larger than one write chunk. The host answers every
+// append with the handle's total length after it, so the extension must expect
+// the running total rather than the size of the chunk it just handed over.
+func TestRestoreWritesAcrossSeveralChunks(t *testing.T) {
+	host := newFakeHost(t)
+	now := time.Date(2026, time.November, 19, 15, 0, 0, 0, time.UTC)
+	syncer := newSyncer(host, &now)
+	host.saveConnection(t, syncer)
+	plain := make([]byte, 2*chunkBytes+1234)
+	for index := range plain {
+		plain[index] = byte(index % 251)
+	}
+	sealed, err := crypt.EncryptArchive(plain, testPassphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.request = restoreHandler(t, sealed)
+	var restored []byte
+	host.restore = func(handle string) (hook.BackupRestoreResult, error) {
+		restored = append([]byte(nil), host.handles[handle]...)
+		return hook.BackupRestoreResult{Items: 1}, nil
+	}
+	if _, err := syncer.Handle(context.Background(), `{"action":"restore"}`); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored, plain) {
+		t.Fatalf("restored %d bytes, want %d", len(restored), len(plain))
 	}
 }
 
