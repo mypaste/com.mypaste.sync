@@ -156,6 +156,7 @@
     transform: translateY(-1px);
   }
   .notice[hidden] { display: none; }
+  .notice-text { min-width: 0; }
   .notice[data-tone="success"] { color: var(--success); }
   .notice[data-tone="danger"] { color: var(--danger); }
   .notice[data-tone="busy"] { color: var(--accent); }
@@ -424,14 +425,36 @@
   .backup .switch-row { flex: none; }
   .backup button { flex: none; }
 
-  /* The sidebar arrangement leaves the menu canvas about 700px wide: the
-     credentials pair up there and the passphrase takes the row below, so the
-     sheet keeps its two columns and its one-screen fit (D-1114, D-1122). */
+  /* The sidebar arrangement narrows the menu canvas to about 670px, where the
+     sheet's own rhythm would push it past the 562px the frame gives it. The
+     block below is not a second design: it trims the same rhythm (padding,
+     gaps, card insets), pairs the three credentials so the passphrase takes
+     the row below, and keeps the sheet inside the frame — including the row a
+     notice adds while one is showing (D-1114, D-1122). */
   @media (max-width: 900px) {
-    .page { gap: 14px 16px; padding: 20px 0; }
-    .card { padding: 14px 16px 16px; }
+    .page { gap: 10px 16px; padding: 12px 0; }
+    .card { gap: 12px; padding: 12px 14px 14px; }
+    .grid { gap: 8px 12px; }
     .grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .grid.three > label:last-child { grid-column: 1 / -1; }
+    .row { gap: 10px; }
+    /* The note's basis decides whether the row wraps: at 200px the button
+       plus basis no longer fits the narrow card and the row becomes two
+       lines. It may shrink freely; it keeps at least two words per line. */
+    .note { flex: 1 1 120px; }
+    .head { padding-bottom: 10px; }
+    .restore { padding-top: 12px; }
+    /* A failure can name an endpoint, a bucket and the reason; two lines is
+       what this frame can give it without the sheet itself scrolling. The
+       text clamps to two lines, the full message stays in the tooltip and in
+       the live region. */
+    .notice { padding: 7px 10px; font-size: 11.5px; line-height: 1.45; }
+    .notice-text {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
   }
 
   /* Below the sheet's width the columns stack and the page scrolls: a window
@@ -463,7 +486,7 @@
     <span class="save-state" id="save-state" data-tone="idle">改动自动保存</span>
   </header>
 
-  <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
+  <p class="notice" id="notice" role="status" aria-live="polite" hidden><span class="notice-text" id="notice-text"></span></p>
 
   <section class="card">
     <div class="card-head">
@@ -567,6 +590,7 @@
   var restore = document.getElementById("restore");
   var saveState = document.getElementById("save-state");
   var noticeBar = document.getElementById("notice");
+  var noticeText = document.getElementById("notice-text");
   var status = document.getElementById("status");
   var statusLabel = document.getElementById("status-label");
   var statusDetail = document.getElementById("status-detail");
@@ -656,11 +680,16 @@
 
   function notice(text, tone) {
     window.clearTimeout(noticeTimer);
-    noticeBar.textContent = text || "";
+    var message = text || "";
+    noticeText.textContent = message;
+    // The narrow sheet clamps the bar to two lines; the tooltip carries the
+    // whole message without making the page taller.
+    if (message) noticeBar.title = message;
+    else noticeBar.removeAttribute("title");
     if (tone) noticeBar.dataset.tone = tone;
     else delete noticeBar.dataset.tone;
-    noticeBar.hidden = !text;
-    if (text && tone === "success") {
+    noticeBar.hidden = !message;
+    if (message && tone === "success") {
       noticeTimer = window.setTimeout(function () { noticeBar.hidden = true; }, 6000);
     }
   }
