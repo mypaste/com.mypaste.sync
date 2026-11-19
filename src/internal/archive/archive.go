@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -424,6 +425,21 @@ func (b *Builder) copyTableRows(
 	}
 }
 
+// imageAssetSuffixes are the formats a managed image may be stored in. New
+// captures are <sha256>.png, while history imported from the native app kept
+// its <sha256>.webp files, so the archive must carry both. The suffix only
+// names the file — the host serves bytes by sniffed content type — but a row
+// whose reference is not an image is still refused.
+var imageAssetSuffixes = []string{
+	".png", ".webp", ".jpg", ".jpeg", ".gif", ".heic", ".tiff", ".bmp", ".avif",
+}
+
+func imageAssetName(name string) bool {
+	return name != "" && name != "." && name != ".." && len(name) <= 128 &&
+		!strings.ContainsAny(name, "/\\") &&
+		slices.Contains(imageAssetSuffixes, strings.ToLower(path.Ext(name)))
+}
+
 // assetReference turns one clipboard row's image path into the archive name
 // and the entry id whose payload carries the bytes.
 func assetReference(idValue, pathValue any) (string, int64, error) {
@@ -432,8 +448,7 @@ func assetReference(idValue, pathValue any) (string, int64, error) {
 		return "", 0, nil
 	}
 	name := path.Base(strings.ReplaceAll(raw, "\\", "/"))
-	if name == "" || name == "." || name == ".." || !strings.HasSuffix(name, ".png") ||
-		len(name) > 128 || strings.ContainsAny(name, "/\\") {
+	if !imageAssetName(name) {
 		return "", 0, errors.New("历史中的图片引用不是受管资产")
 	}
 	id, err := intValue(idValue)

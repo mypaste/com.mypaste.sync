@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,6 +269,56 @@ func TestBuildRejectsUnmanagedImageReference(t *testing.T) {
 	builder := &Builder{Client: client, AppVersion: "0.30.0"}
 	if _, err := builder.Build(context.Background(), t.TempDir()); err == nil {
 		t.Fatal("unmanaged image reference was archived")
+	}
+}
+
+// History imported from the native app keeps its <sha256>.webp assets, so the
+// archive must carry that name — the host serves bytes by entry id, and the
+// suffix only names the file.
+func TestBuildKeepsImportedWebpAsset(t *testing.T) {
+	client := newFakeClient(t)
+	defer client.db.Close()
+	name := strings.Repeat("a", 64) + ".webp"
+	source := "/Users/someone/Library/Application Support/MyPaste-Go/v2/assets/" + name
+	if _, err := client.db.Exec(`UPDATE clipboard_items SET image_path = ? WHERE id = 1`, source); err != nil {
+		t.Fatal(err)
+	}
+	builder := &Builder{Client: client, AppVersion: "2026.1119.14"}
+	info, err := builder.Build(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(info.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	names := map[string]*zip.File{}
+	for _, file := range reader.File {
+		names[file.Name] = file
+	}
+	if names["assets/"+name] == nil {
+		t.Fatalf("archive lacks the webp asset: %v", names)
+	}
+	var manifest Manifest
+	decodeZipJSON(t, names["manifest.json"], &manifest)
+	if len(manifest.Referenced) != 1 || manifest.Referenced[0] != name ||
+		len(manifest.Assets) != 1 || manifest.Assets[0].Name != name {
+		t.Fatalf("manifest: %+v", manifest)
+	}
+	databaseBytes := readZip(t, names["mypaste.db"])
+	databasePath := filepath.Join(t.TempDir(), "mypaste.db")
+	if err := os.WriteFile(databasePath, databaseBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openReadOnly(t, databasePath)
+	defer db.Close()
+	var imagePath string
+	if err := db.QueryRow("SELECT image_path FROM clipboard_items WHERE id = 1").Scan(&imagePath); err != nil {
+		t.Fatal(err)
+	}
+	if imagePath != name {
+		t.Fatalf("image path not rewritten: %q", imagePath)
 	}
 }
 
