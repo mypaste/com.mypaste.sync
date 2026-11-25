@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 
@@ -49,6 +50,13 @@ const (
 	// pageRows is the first row page size; a page that is too large for the
 	// host's 2 MiB line is halved down to one row.
 	pageRows = 512
+	// chunkChars is the first substr size for a single cell that is too large
+	// for the host's 2 MiB line even alone. JSON escaping inflates HTML (every
+	// `<`, `>` and `&` becomes six bytes), so a quarter of a million characters
+	// already stays well inside the line; a chunk that still trips the cap is
+	// halved down to chunkFloor.
+	chunkChars = 256 << 10
+	chunkFloor = 4 << 10
 )
 
 // Counts is the host's manifest count block.
@@ -355,11 +363,27 @@ func (b *Builder) copyTableRows(
 	for {
 		rows, gotColumns, _, err := b.Client.Query(ctx, selectSQL, []any{last, limit}, limit)
 		if err != nil {
-			if limit > 1 && strings.Contains(err.Error(), "超过单行上限") {
+			if !isLineLimit(err) {
+				return fmt.Errorf("读取数据表 %s：%w", table, err)
+			}
+			if limit > 1 {
 				limit /= 2
 				continue
 			}
-			return fmt.Errorf("读取数据表 %s：%w", table, err)
+			// One row alone exceeds the host's 2 MiB result line. Read it cell
+			// by cell, chunking any text too large even for its own line, then
+			// resume paging at the normal page size.
+			id, values, err := b.readOversizedRow(ctx, table, columns, last)
+			if err != nil {
+				return err
+			}
+			row := append([]any{json.Number(strconv.FormatInt(id, 10))}, values...)
+			if _, err := insertPage(ctx, db, table, columns, adjust, insertSQL, [][]any{row}); err != nil {
+				return err
+			}
+			last = id
+			limit = pageRows
+			continue
 		}
 		if len(gotColumns) != len(columns)+1 {
 			return fmt.Errorf("数据表 %s 的列与结构不一致", table)
@@ -367,62 +391,203 @@ func (b *Builder) copyTableRows(
 		if len(rows) == 0 {
 			return nil
 		}
-		tx, err := db.BeginTx(ctx, nil)
+		newLast, err := insertPage(ctx, db, table, columns, adjust, insertSQL, rows)
 		if err != nil {
-			return errors.New("无法写入本地数据库")
+			return err
 		}
-		statement, err := tx.PrepareContext(ctx, insertSQL)
-		if err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("无法写入数据表 %s", table)
-		}
-		for _, row := range rows {
-			if len(row) != len(columns)+1 {
-				_ = statement.Close()
-				_ = tx.Rollback()
-				return fmt.Errorf("数据表 %s 的行不完整", table)
-			}
-			id, err := intValue(row[0])
-			if err != nil {
-				_ = statement.Close()
-				_ = tx.Rollback()
-				return fmt.Errorf("数据表 %s 的 rowid 无效", table)
-			}
-			values := append([]any(nil), row[1:]...)
-			if adjust != nil {
-				if err := adjust(values, columns); err != nil {
-					_ = statement.Close()
-					_ = tx.Rollback()
-					return err
-				}
-			}
-			converted := make([]any, len(values))
-			for index, value := range values {
-				cell, err := cellValue(value)
-				if err != nil {
-					_ = statement.Close()
-					_ = tx.Rollback()
-					return fmt.Errorf("数据表 %s 的列值无法写入", table)
-				}
-				converted[index] = cell
-			}
-			if _, err := statement.ExecContext(ctx, converted...); err != nil {
-				_ = statement.Close()
-				_ = tx.Rollback()
-				return fmt.Errorf("写入数据表 %s 失败", table)
-			}
-			if id > last {
-				last = id
-			}
-		}
-		_ = statement.Close()
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("提交数据表 %s 失败", table)
+		if newLast > last {
+			last = newLast
 		}
 		if len(rows) < limit {
 			return nil
 		}
 	}
+}
+
+// isLineLimit reports the host's refusal of a result whose single line exceeds
+// its 2 MiB budget (data.read, DataReadMaxLine).
+func isLineLimit(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "超过单行上限")
+}
+
+// insertPage writes one page of rows in its own transaction and returns the
+// highest rowid it wrote.
+func insertPage(
+	ctx context.Context, db *sql.DB, table string, columns []string,
+	adjust func([]any, []string) error, insertSQL string, rows [][]any,
+) (int64, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, errors.New("无法写入本地数据库")
+	}
+	statement, err := tx.PrepareContext(ctx, insertSQL)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, fmt.Errorf("无法写入数据表 %s", table)
+	}
+	var last int64
+	for _, row := range rows {
+		if len(row) != len(columns)+1 {
+			_ = statement.Close()
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("数据表 %s 的行不完整", table)
+		}
+		id, err := intValue(row[0])
+		if err != nil {
+			_ = statement.Close()
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("数据表 %s 的 rowid 无效", table)
+		}
+		values := append([]any(nil), row[1:]...)
+		if adjust != nil {
+			if err := adjust(values, columns); err != nil {
+				_ = statement.Close()
+				_ = tx.Rollback()
+				return 0, err
+			}
+		}
+		converted := make([]any, len(values))
+		for index, value := range values {
+			cell, err := cellValue(value)
+			if err != nil {
+				_ = statement.Close()
+				_ = tx.Rollback()
+				return 0, fmt.Errorf("数据表 %s 的列值无法写入", table)
+			}
+			converted[index] = cell
+		}
+		if _, err := statement.ExecContext(ctx, converted...); err != nil {
+			_ = statement.Close()
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("写入数据表 %s 失败", table)
+		}
+		if id > last {
+			last = id
+		}
+	}
+	_ = statement.Close()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("提交数据表 %s 失败", table)
+	}
+	return last, nil
+}
+
+// readOversizedRow reads the first row after `after` one cell at a time. A page
+// of a single row can still exceed the host's line when a text column holds
+// megabytes; such a cell is read with substr in chunks and reassembled.
+func (b *Builder) readOversizedRow(
+	ctx context.Context, table string, columns []string, after int64,
+) (int64, []any, error) {
+	quotedTable := quoteIdent(table)
+	idSQL := "SELECT rowid FROM " + quotedTable + " WHERE rowid > ? ORDER BY rowid LIMIT 1"
+	rows, _, _, err := b.Client.Query(ctx, idSQL, []any{after}, 1)
+	if err != nil {
+		return 0, nil, fmt.Errorf("读取数据表 %s：%w", table, err)
+	}
+	if len(rows) != 1 || len(rows[0]) != 1 {
+		return 0, nil, fmt.Errorf("读取数据表 %s：%w", table, errors.New("行号无法读取"))
+	}
+	id, err := intValue(rows[0][0])
+	if err != nil {
+		return 0, nil, fmt.Errorf("读取数据表 %s：%w", table, errors.New("行号无法读取"))
+	}
+	values := make([]any, len(columns))
+	for index, column := range columns {
+		cellSQL := "SELECT " + quoteIdent(column) + " FROM " + quotedTable + " WHERE rowid = ?"
+		cells, _, _, err := b.Client.Query(ctx, cellSQL, []any{id}, 1)
+		if err != nil {
+			if !isLineLimit(err) {
+				return 0, nil, fmt.Errorf("读取数据表 %s：%w", table, err)
+			}
+			text, err := b.readLargeText(ctx, table, column, id)
+			if err != nil {
+				return 0, nil, fmt.Errorf("读取数据表 %s：%w", table, err)
+			}
+			values[index] = text
+			continue
+		}
+		if len(cells) != 1 || len(cells[0]) != 1 {
+			return 0, nil, fmt.Errorf("数据表 %s 的行不完整", table)
+		}
+		values[index] = cells[0][0]
+	}
+	return id, values, nil
+}
+
+// readLargeText rebuilds one text cell through substr chunks. Only text can be
+// chunked by character; a BLOB of that size is refused rather than altered.
+func (b *Builder) readLargeText(
+	ctx context.Context, table, column string, id int64,
+) (string, error) {
+	quotedColumn := quoteIdent(column)
+	probeSQL := "SELECT typeof(" + quotedColumn + "), length(" + quotedColumn + ") FROM " +
+		quoteIdent(table) + " WHERE rowid = ?"
+	rows, _, _, err := b.Client.Query(ctx, probeSQL, []any{id}, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) != 1 || len(rows[0]) != 2 {
+		return "", errors.New("行不完整")
+	}
+	if kind, _ := rows[0][0].(string); kind != "text" {
+		return "", errors.New("二进制单元格超过单行上限")
+	}
+	total, err := intValue(rows[0][1])
+	if err != nil || total < 0 {
+		return "", errors.New("单元格长度无法读取")
+	}
+	if total > MaxPlaintextBytes {
+		return "", errors.New("文本单元格超过备份上限")
+	}
+	var builder strings.Builder
+	if total <= 8<<20 {
+		builder.Grow(int(total))
+	}
+	offset := int64(0)
+	chunk := int64(chunkChars)
+	for offset < total {
+		if chunk > total-offset {
+			chunk = total - offset
+		}
+		part, err := b.queryTextChunk(ctx, table, column, id, offset, chunk)
+		if err != nil {
+			if isLineLimit(err) && chunk > chunkFloor {
+				chunk /= 2
+				continue
+			}
+			return "", err
+		}
+		runes := int64(utf8.RuneCountInString(part))
+		if runes == 0 {
+			return "", errors.New("文本单元格读取不完整")
+		}
+		builder.WriteString(part)
+		offset += runes
+	}
+	if offset != total {
+		return "", errors.New("文本单元格读取不完整")
+	}
+	return builder.String(), nil
+}
+
+// queryTextChunk reads `size` characters of one text cell from `offset`.
+func (b *Builder) queryTextChunk(
+	ctx context.Context, table, column string, id, offset, size int64,
+) (string, error) {
+	sql := "SELECT substr(" + quoteIdent(column) + ", ?, ?) FROM " + quoteIdent(table) +
+		" WHERE rowid = ?"
+	rows, _, _, err := b.Client.Query(ctx, sql, []any{offset + 1, size, id}, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) != 1 || len(rows[0]) != 1 {
+		return "", errors.New("行不完整")
+	}
+	text, ok := rows[0][0].(string)
+	if !ok {
+		return "", errors.New("文本单元格无法读取")
+	}
+	return text, nil
 }
 
 // imageAssetSuffixes are the formats a managed image may be stored in. New

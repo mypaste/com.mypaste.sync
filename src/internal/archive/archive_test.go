@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -32,6 +33,9 @@ type fakeClient struct {
 	db     *sql.DB
 	assets map[int64]fakeAsset
 	begun  bool
+	// lineLimit mirrors the host's DataReadMaxLine: a result whose marshalled
+	// JSON line exceeds it is refused with the host's own message.
+	lineLimit int64
 }
 
 func (f *fakeClient) Begin(context.Context) error { f.begun = true; return nil }
@@ -76,6 +80,18 @@ func (f *fakeClient) Query(ctx context.Context, statement string, params []any, 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, false, err
+	}
+	if f.lineLimit > 0 {
+		encoded, err := json.Marshal(struct {
+			Columns []string `json:"columns"`
+			Rows    [][]any  `json:"rows"`
+		}{columns, out})
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if int64(len(encoded)) > f.lineLimit {
+			return nil, nil, false, errors.New("查询结果超过单行上限，请缩小 limit 或分页读取")
+		}
 	}
 	return out, columns, false, nil
 }
@@ -319,6 +335,73 @@ func TestBuildKeepsImportedWebpAsset(t *testing.T) {
 	}
 	if imagePath != name {
 		t.Fatalf("image path not rewritten: %q", imagePath)
+	}
+}
+
+// One clipboard row can hold megabytes of text and HTML, which exceeds the
+// host's 2 MiB data.read line even at limit 1. The builder must fall back to
+// reading that row cell by cell — chunking oversized text with substr — and
+// then resume paging, instead of failing the whole backup.
+func TestBuildReadsRowLargerThanResultLine(t *testing.T) {
+	client := newFakeClient(t)
+	defer client.db.Close()
+	client.lineLimit = 2 << 20
+	text := strings.Repeat("a", 2_800_000)
+	html := strings.Repeat("<p>x</p>", 400_000)
+	if _, err := client.db.Exec(
+		`INSERT INTO clipboard_items (id, form, text, html) VALUES (100, 'rich_text', ?, ?)`,
+		text, html,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.db.Exec(
+		`INSERT INTO clipboard_items (id, form, text) VALUES (101, 'text', 'after')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	builder := &Builder{Client: client, AppVersion: "2026.1125.01"}
+	info, err := builder.Build(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Items != 4 {
+		t.Fatalf("items: %d", info.Items)
+	}
+	reader, err := zip.OpenReader(info.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	names := map[string]*zip.File{}
+	for _, file := range reader.File {
+		names[file.Name] = file
+	}
+	databasePath := filepath.Join(t.TempDir(), "mypaste.db")
+	if err := os.WriteFile(databasePath, readZip(t, names["mypaste.db"]), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openReadOnly(t, databasePath)
+	defer db.Close()
+	var gotText, gotHTML string
+	if err := db.QueryRow(
+		"SELECT text, html FROM clipboard_items WHERE id = 100",
+	).Scan(&gotText, &gotHTML); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotText) != len(text) || gotText != text {
+		t.Fatalf("text truncated: %d of %d characters", len(gotText), len(text))
+	}
+	if gotHTML != html {
+		t.Fatalf("html truncated: %d of %d characters", len(gotHTML), len(html))
+	}
+	var after string
+	if err := db.QueryRow(
+		"SELECT text FROM clipboard_items WHERE id = 101",
+	).Scan(&after); err != nil {
+		t.Fatalf("row after the oversized one was skipped: %v", err)
+	}
+	if after != "after" {
+		t.Fatalf("paging did not resume: %q", after)
 	}
 }
 
