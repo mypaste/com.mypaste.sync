@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>S3 同步</title>
+<script>
+  // The host's theme answer is the authority; until it arrives, the system
+  // appearance is the best guess, so a dark host does not flash a light page.
+  (function () {
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+        document.documentElement.dataset.scheme = "dark";
+      }
+    } catch (error) {}
+  })();
+</script>
 <style>
   /* First-frame values follow the host's default appearance; the host then
      sends every name below inline on <html>, which outranks these blocks. */
@@ -16,8 +27,10 @@
     --accent: #a65d2e;
     --accent-ink: #fff8ef;
     --danger: #b65b36;
+    --danger-ink: #8f4326;
     --success: #607d4c;
     --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    --font-display: var(--font-body);
     --radius-xs: 4px;
     --radius-sm: 6px;
     --radius-md: 10px;
@@ -34,6 +47,7 @@
     --accent: #dfa46f;
     --accent-ink: #24180e;
     --danger: #d58a68;
+    --danger-ink: #f0b79c;
     --success: #93b277;
     color-scheme: dark;
   }
@@ -92,7 +106,7 @@
   }
   h1 {
     margin: 0;
-    font: 600 22px/1.15 var(--font-body);
+    font: 600 22px/1.15 var(--font-display);
     letter-spacing: 0.005em;
   }
   .intro {
@@ -197,7 +211,7 @@
     gap: 5px;
     min-width: 0;
     color: var(--ink-soft);
-    font-size: 11.5px;
+    font-size: 10.5px;
     font-weight: 600;
   }
   input[type="url"],
@@ -206,14 +220,13 @@
   select {
     appearance: none;
     width: 100%;
-    height: 34px;
+    height: 30px;
     padding: 0 10px;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
-    background: var(--surface-solid);
+    background: color-mix(in srgb, var(--ink) 6%, var(--surface-raised));
     color: var(--ink);
-    font: 13px/1.2 var(--font-body);
-    font-weight: 400;
+    font: 500 11.5px/1.2 var(--font-body);
     min-width: 0;
   }
   input::placeholder { color: var(--ink-soft); opacity: 0.62; }
@@ -227,12 +240,6 @@
   select:disabled { opacity: 0.55; }
   select {
     padding-right: 26px;
-    background-image:
-      linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
-      linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
-    background-position: calc(100% - 14px) 15px, calc(100% - 9px) 15px;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
     cursor: pointer;
   }
 
@@ -250,6 +257,9 @@
     font-size: 11px;
     line-height: 1.5;
   }
+  /* Host form system (D-1098): one 30px control, a quiet filled rest state,
+     no outline. Primary and destructive actions are the same quiet fill with
+     their own materials, so a row of actions reads as one family. */
   button {
     appearance: none;
     display: inline-flex;
@@ -258,34 +268,39 @@
     gap: 6px;
     height: 30px;
     padding: 0 13px;
-    border: 1px solid var(--line);
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    background: var(--surface-solid);
-    color: var(--ink);
-    font: 600 12px/1 var(--font-body);
+    background: color-mix(in srgb, var(--ink) 6%, var(--surface-raised));
+    color: var(--ink-soft);
+    font: 600 11px/1 var(--font-body);
     cursor: pointer;
     white-space: nowrap;
   }
-  button:hover:not(:disabled) { border-color: var(--ink-soft); }
+  button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--ink) 10%, var(--surface-raised));
+    color: var(--ink);
+  }
   button:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
   button:disabled { opacity: 0.5; cursor: default; }
   button.primary {
-    border-color: var(--accent);
     background: var(--accent);
     color: var(--accent-ink);
   }
-  button.primary:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--accent-ink);
+    filter: brightness(1.06);
+  }
   button.danger {
-    border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
-    background: transparent;
-    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 9%, color-mix(in srgb, var(--ink) 6%, var(--surface-raised)));
+    color: var(--danger-ink);
   }
   button.danger:hover:not(:disabled) {
-    border-color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 7%, transparent);
+    background: color-mix(in srgb, var(--danger) 16%, color-mix(in srgb, var(--ink) 6%, var(--surface-raised)));
+    color: var(--danger-ink);
   }
 
   /* The switch is the whole row: a track, a knob, and the plan's interval on
@@ -339,6 +354,7 @@
   .switch-row input:disabled + .track { opacity: 0.5; }
   .switch-title { font-weight: 600; white-space: nowrap; }
   .interval-wrap {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 7px;
@@ -348,6 +364,22 @@
     font-weight: 600;
   }
   .interval-wrap select { width: auto; min-width: 96px; height: 30px; }
+  /* One chevron, drawn by a single SVG (D-1055); the select keeps its own
+     native arrow out of the way because the control draws no bevel. */
+  .interval-wrap::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 11px;
+    width: 8px;
+    height: 5px;
+    margin-top: -2.5px;
+    background-color: var(--ink-soft);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    pointer-events: none;
+  }
+  .interval-wrap:has(select:disabled)::after { opacity: 0.5; }
 
   /* One status readout for the whole backup card: what the extension knows
      about the last run and the next one. */
